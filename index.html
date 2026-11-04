@@ -368,10 +368,29 @@
   }
   .user-bar button { padding: 5px 14px; font-size: 0.78rem; }
 
+  /* ========== تب‌های ابزار ========== */
+  .app-tabs { display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .app-tabs button {
+    background: none; color: var(--text-muted); border: 1px solid transparent; border-bottom: none;
+    border-radius: 8px 8px 0 0; padding: 9px 18px; font-size: 0.88rem; margin-bottom: -1px;
+  }
+  .app-tabs button:hover { background: rgba(15, 95, 166, 0.06); color: var(--primary-dark); }
+  .app-tabs button.active { background: var(--card); color: var(--primary-dark); border-color: var(--border); }
+  .btn-sm { padding: 5px 12px; font-size: 0.76rem; border-radius: 6px; }
+  #ival1, #ival2 { direction: ltr; text-align: left; }
+  tr.detail-row > td { background: #fbfdff !important; padding: 12px 14px; }
+  .detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 6px 22px; padding: 2px 2px 8px; }
+  .detail-grid div { display: flex; gap: 6px; font-size: 0.76rem; }
+  .detail-grid b { color: #52606d; font-weight: 600; white-space: nowrap; }
+  .sec-title { font-weight: 700; color: var(--primary-dark); font-size: 0.78rem; margin: 10px 2px 4px; }
+  .mini-table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+  .mini-table th { background: var(--primary-light); color: var(--primary-dark); padding: 5px 6px; text-align: right; font-weight: 600; white-space: nowrap; }
+  .mini-table td { padding: 5px 6px; border-bottom: 1px solid var(--border); background: #fff; }
+
   /* ========== حالت چاپ / PDF ========== */
   @media print {
     body { background: #fff; padding: 0; font-size: 11px; }
-    .search-box, #status, .app-footer, button, .chev, .user-bar, #login, details.all-fields { display: none !important; }
+    .search-box, #status, #istatus, .app-footer, button, .chev, .user-bar, #login, details.all-fields, .app-tabs { display: none !important; }
     .container { max-width: 100%; }
     h1 { display: none; }
     .print-title {
@@ -458,6 +477,12 @@
   </div>
 
   <div id="app" class="hidden">
+    <div class="app-tabs">
+      <button type="button" data-tab="tabSanhab" class="active">استعلام سنهاب</button>
+      <button type="button" data-tab="tabInq">استعلام عدم خسارت ایران</button>
+    </div>
+
+    <div id="tabSanhab">
     <form class="search-box" id="f">
       <div class="field">
         <label>نوع جستجو</label>
@@ -483,6 +508,33 @@
     <div id="status"></div>
     <div class="print-title" id="printTitle"></div>
     <div id="out"></div>
+    </div>
+
+    <!-- استعلام صدور بدنه (فقط بیمه‌نامه‌های بدنه‌ی بیمه ایران) -->
+    <div id="tabInq" class="hidden">
+      <form class="search-box" id="fi">
+        <div class="field" style="max-width:240px">
+          <label>نوع جستجو</label>
+          <select id="itype">
+            <option value="policy">شماره بیمه‌نامه</option>
+            <option value="chassis">شماره شاسی</option>
+            <option value="engine">شماره موتور</option>
+            <option value="cm">شاسی و موتور</option>
+          </select>
+        </div>
+        <div class="field">
+          <label id="ival1Label">شماره بیمه‌نامه</label>
+          <input id="ival1" type="text" required autocomplete="off" placeholder="مثلاً 1404/6/245/6046/80">
+        </div>
+        <div class="field hidden" id="ival2Field">
+          <label>شماره موتور</label>
+          <input id="ival2" type="text" autocomplete="off" placeholder="مثلاً 153H0101194">
+        </div>
+        <button id="igo">جستجو</button>
+      </form>
+      <div id="istatus"></div>
+      <div id="iout"></div>
+    </div>
   </div>
   <div class="app-footer">developed by M.gh</div>
 </div>
@@ -859,6 +911,115 @@ document.addEventListener("click", async e => {
   if (!tr || !out.contains(tr)) return;
   if (tr.classList.contains("open")) clearSubs(tr); else openRow(tr);
 });
+
+// ---------- تب «استعلام عدم خسارت ایران» (استعلام صدور بدنه) ----------
+const INQ = BASE + "/api/inq";
+const iStatus = (t, cls = "") => { $("istatus").innerHTML = t ? `<div class="status ${cls}">${h(t)}</div>` : ""; };
+const IPH = { policy: "مثلاً 1404/6/245/6046/80", chassis: "مثلاً NAAW61HU8NE716168", engine: "مثلاً 153H0101194", cm: "شماره شاسی" };
+const ILAB = { policy: "شماره بیمه‌نامه", chassis: "شماره شاسی", engine: "شماره موتور", cm: "شماره شاسی" };
+$("itype").addEventListener("change", () => {
+  const t = $("itype").value;
+  $("ival1").placeholder = IPH[t]; $("ival1Label").textContent = ILAB[t];
+  $("ival2Field").classList.toggle("hidden", t !== "cm"); $("ival2").required = t === "cm";
+});
+let inqParams = null, inqRows = [], inqHead = [];
+
+function inqQuery() {
+  const t = $("itype").value, v1 = $("ival1").value.trim(), v2 = $("ival2").value.trim();
+  if (t === "policy") return { kind: "policy", number: v1 };
+  if (t === "chassis") return { kind: "cm", chassis: v1 };
+  if (t === "engine") return { kind: "cm", engine: v1 };
+  return { kind: "cm", chassis: v1, engine: v2 };
+}
+async function inqCall(path, params, wantPdf) {
+  const res = await fetch(INQ + path + "?" + new URLSearchParams(params), { headers: { Authorization: "Bearer " + store.get(TOKEN_KEY) } });
+  if (res.status === 401) { sessionExpired(); throw new Error(NEED_LOGIN); }
+  if (wantPdf && (res.headers.get("content-type") || "").includes("pdf")) return await res.blob();
+  let r = {}; try { r = await res.json(); } catch (_) {}
+  if (r.error || !res.ok) throw new Error(r.error || `سرور جواب درست نداد (کد ${res.status}).`);
+  return r;
+}
+function miniTable(t, title) {
+  if (!t || !t.rows || !t.rows.length) return `<div class="sec-title">${h(title)}</div><div class="muted" style="padding:0 4px 6px">ندارد</div>`;
+  return `<div class="sec-title">${h(title)}</div><div class="table-wrap" style="box-shadow:none"><table class="mini-table"><thead><tr>${t.head.map(x => `<th>${h(x)}</th>`).join("")}</tr></thead><tbody>${t.rows.map(r => `<tr>${r.cells.map(c => `<td>${dash(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+function detailHtml(d) {
+  const kv = Object.entries(d.fields || {}).filter(([, v]) => !empty(v)).map(([k, v]) => `<div><b>${h(k)}:</b><span>${h(v)}</span></div>`).join("");
+  return `<div class="detail-grid">${kv}</div>${miniTable(d.damages, "خسارت‌ها")}${miniTable(d.endorsements, "الحاقیه‌ها")}${miniTable(d.coverages, "پوشش‌های تکمیلی")}`;
+}
+async function downloadPdf(r, b) {
+  const old = b.textContent; b.disabled = true; b.textContent = "در حال ساخت PDF…";
+  try {
+    const blob = await inqCall("/pdf", { ...inqParams, row: r.rowId }, true);
+    if (!(blob instanceof Blob)) throw new Error("فایل PDF دریافت نشد.");
+    const pn = (r.cells.find(c => /^\d+(\/\d+){3,}$/.test(c || "")) || r.rowId).replace(/\//g, "-");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `estelam-badaneh-${pn}.pdf`;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+    iStatus("گزارش استعلام دانلود شد.");
+  } catch (err) {
+    if (err.message !== NEED_LOGIN) iStatus(friendly(err), "error");
+  } finally { b.disabled = false; b.textContent = old; }
+}
+
+$("fi").addEventListener("submit", async e => {
+  e.preventDefault();
+  const q = inqQuery();
+  if (!Object.entries(q).some(([k, v]) => k !== "kind" && v)) { iStatus("مقدار جستجو را وارد کنید.", "error"); return; }
+  $("igo").disabled = true; $("iout").innerHTML = "";
+  iStatus("در حال جستجو در استعلام صدور بدنه…", "loading");
+  try {
+    const r = await inqCall("", q);
+    inqParams = q; inqHead = r.head || []; inqRows = r.rows || [];
+    if (!inqRows.length) { iStatus(""); $("iout").innerHTML = '<p class="empty-note">بیمه‌نامه‌ی بدنه‌ی بیمه ایران با این مشخصات پیدا نشد.</p>'; return; }
+    const cols = inqHead.map((_, i) => i).filter(i => !/نمایش/.test(norm(inqHead[i])));
+    const cell = (r, i) => {
+      const c = r.cells[i], hd = norm(inqHead[i] || "");
+      if (/شماره بیمه/.test(hd)) return `<td class="num">${copyValue(c)}</td>`;
+      return `<td${/^[\d\/]+$/.test(c || "") ? ' class="num"' : ""}>${dash(c)}</td>`;
+    };
+    $("iout").innerHTML = `
+      <div class="table-wrap">
+        <table class="policy-table">
+          <thead><tr>${cols.map(i => `<th>${h(inqHead[i])}</th>`).join("")}<th>عملیات</th></tr></thead>
+          <tbody>${inqRows.map((r, n) => `<tr class="policy-row inq-row" data-n="${n}">${cols.map(i => cell(r, i)).join("")}
+            <td><span class="hist"><button type="button" class="ghost-btn btn-sm" data-act="view">نمایش</button><button type="button" class="btn-sm" data-act="pdf">گزارش استعلام (PDF)</button></span></td></tr>`).join("")}</tbody>
+        </table>
+      </div>`;
+    iStatus(`${inqRows.length} بیمه‌نامه پیدا شد — «نمایش» برای جزئیات، «گزارش استعلام» برای دانلود PDF`);
+  } catch (err) {
+    if (err.message === NEED_LOGIN) iStatus(""); else iStatus(friendly(err), "error");
+  } finally { $("igo").disabled = false; }
+});
+
+$("iout").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const tr = b.closest("tr.inq-row"), r = inqRows[+tr.dataset.n];
+  if (!r || !r.rowId) { iStatus("شناسه‌ی این ردیف پیدا نشد؛ دوباره جستجو کنید.", "error"); return; }
+  if (b.dataset.act === "pdf") return downloadPdf(r, b);
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains("detail-row")) { next.remove(); tr.classList.remove("open"); return; }
+  const old = b.textContent; b.disabled = true; b.textContent = "…";
+  try {
+    const d = await inqCall("/view", { ...inqParams, row: r.rowId });
+    tr.insertAdjacentHTML("afterend", `<tr class="sub-row detail-row"><td colspan="${tr.children.length}">${detailHtml(d)}</td></tr>`);
+    tr.classList.add("open");
+  } catch (err) {
+    if (err.message !== NEED_LOGIN) iStatus(friendly(err), "error");
+  } finally { b.disabled = false; b.textContent = old; }
+});
+
+// ---------- تب‌ها ----------
+const TAB_KEY = "hull-tab";
+function showTab(id) {
+  ["tabSanhab", "tabInq"].forEach(t => $(t).classList.toggle("hidden", t !== id));
+  document.querySelectorAll(".app-tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === id));
+  store.set(TAB_KEY, id);
+}
+document.querySelectorAll(".app-tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+showTab(store.get(TAB_KEY) === "tabInq" ? "tabInq" : "tabSanhab");
 
 // ---------- شروع ----------
 $("lu").value = store.get(LAST_USER_KEY);
